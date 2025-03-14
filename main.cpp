@@ -1,30 +1,18 @@
 #include <iostream>
-#include <sys/ioctl.h>
 #include <net/if.h>
 #include <netinet/if_ether.h>
 #include <linux/if_packet.h>
 #include <cstring>
 #include <unistd.h>
 #include <arpa/inet.h>
+#include "interface_manager.h"
 
-#define INTERFACE "eth0"
 #define PAYLOAD "Hello world!"
 
 #define PROT_ADDRESS_LEN 4
 
 unsigned char sha[] = {0x00, 0x15, 0x5d, 0x9f, 0x9e, 0x01};
 unsigned char tha[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-
-void get_ifreq_ref(int sockfd, const char* eth_name, struct ifreq& if_idx) {
-    memset(&if_idx, 0, sizeof(struct ifreq));
-    strncpy(if_idx.ifr_name, INTERFACE, IFNAMSIZ - 1);
-
-    if_idx.ifr_name[IFNAMSIZ-1] = '\0';
-
-    if (ioctl(sockfd, SIOCGIFINDEX, &if_idx) < 0) {
-        throw std::runtime_error("Couldn't get the index of the interface " + std::string(INTERFACE) + " errno: " + std::string(strerror(errno)));
-    }
-}
 
 
 struct eth_frame {
@@ -68,14 +56,48 @@ arp_packet construct_arp_packet() {
     return router_arp;
 }
 
-int main() {
-    int sockfd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
+void print_usage(char *program_name) {
+    std::cerr << "Usage: sudo " << program_name << " -i eth0 -a 192.168.1.1" << std::endl;
+    std::cerr << "Then run sudo tcpdump -i eth0 proto 0x0806 -XX" << std::endl;
+
+}
+
+int main(int argc, char *argv[]) {
+    std::string interface_name;
+    struct in_addr target_ip{};
+
+    int opt;
+    while ((opt = getopt(argc, argv, "i:a:")) != -1) {
+        switch (opt) {
+            case 'i':
+                std::cout << "Option i set with " << optarg << std::endl;
+                interface_name = optarg;
+                break;
+            case 'a':
+                std::cout << "Option a set with " << optarg << std::endl;
+                inet_pton(AF_INET, optarg, &target_ip);
+                break;
+            case '?':
+            default:
+                print_usage(argv[0]);
+                break;
+        }
+    }
+
+    if (interface_name.size() == 0 || target_ip.s_addr == 0) {
+        print_usage(argv[0]);
+        return -1;
+    }
+
+    int sockfd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ARP));
     if (sockfd < 0) {
         throw std::runtime_error("Couldn't create a raw socket " + std::string(strerror(errno)));
     }
 
-    struct ifreq eth0_ifreq;
-    get_ifreq_ref(sockfd, INTERFACE, eth0_ifreq);
+    InterfaceManager interfaceManager = InterfaceManager(sockfd, "eth0");
+
+    struct ifreq eth0_ifreq = interfaceManager.get_ifreq_idx();
+    // get_ifreq_ref(sockfd, INTERFACE, eth0_ifreq);
 
 
     struct eth_frame arp_frame;
@@ -107,6 +129,7 @@ int main() {
     memcpy(arp_frame.buffer, (void*)(&router_arp), sizeof(router_arp));
 
     size_t buffer_size = ETH_HLEN + sizeof(router_arp);
+
     // Send the packet
     ssize_t bytes_sent = sendto(sockfd, &arp_frame, buffer_size, 0,
                                 (struct sockaddr*)&socket_address, sizeof(struct sockaddr_ll));
@@ -116,10 +139,6 @@ int main() {
     }
 
     std::cout << "Successfully sent " << bytes_sent << " bytes" << std::endl;
-
-
-
-
     std::cout << "ifreq name is " << eth0_ifreq.ifr_name << std::endl;
     std::cout << "ifreq index is " << eth0_ifreq.ifr_ifindex << std::endl;
 
