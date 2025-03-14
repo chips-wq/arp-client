@@ -28,3 +28,14 @@ struct ifreq InterfaceManager::get_ifreq_idx()
     }
     return if_idx;
 }
+
+struct ifreq InterfaceManager::get_ifreq_hwaddr() {
+    struct ifreq if_hwaddr{};
+    strncpy(if_hwaddr.ifr_name, interface.c_str(), IF_NAMESIZE - 1);
+
+    if_hwaddr.ifr_name[IFNAMSIZ - 1] = '\0';
+    if (ioctl(sockfd, SIOCGIFHWADDR, &if_hwaddr) < 0) {
+        throw std::runtime_error("Couldn't get the hwaddr(mac) of the interface " + interface + " errno: " + std::string(strerror(errno)));
+    }
+    return if_hwaddr;
+}

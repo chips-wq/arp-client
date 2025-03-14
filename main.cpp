@@ -10,8 +10,6 @@
 
 #define IPV4_ADDR_LEN 4
 
-
-unsigned char sha[] = {0x00, 0x15, 0x5d, 0x9f, 0x9e, 0x01};
 unsigned char broadcast_address[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
 struct eth_frame {
@@ -28,9 +26,8 @@ struct arp_packet {
     unsigned char tpa[IPV4_ADDR_LEN];
 } __attribute__((packed));
 
-arp_packet construct_arp_packet(struct in_addr* tpa) {
+arp_packet construct_arp_packet(unsigned char sha[], struct in_addr* tpa) {
     unsigned char spa[] = {10, 40, 6, 123};
-    // unsigned char tpa[] = {10, 40, 141, 224};
 
     struct arp_packet router_arp;
     router_arp.header.ar_hrd = htons(ARPHRD_ETHER);
@@ -91,7 +88,15 @@ int main(int argc, char *argv[]) {
     InterfaceManager interfaceManager = InterfaceManager(sockfd, "eth0");
 
     struct ifreq eth0_ifreq = interfaceManager.get_ifreq_idx();
+    struct ifreq eth0_hwaddr = interfaceManager.get_ifreq_hwaddr();
+
+    unsigned char source_mac_address[ETH_ALEN];
+    memcpy(source_mac_address, eth0_hwaddr.ifr_hwaddr.sa_data, ETH_ALEN);
+
     // get_ifreq_ref(sockfd, INTERFACE, eth0_ifreq);
+    for (int i = 0; i < ETH_ALEN; i++) {
+        printf("%hhx,", source_mac_address[i]);
+    }
 
 
     struct eth_frame arp_frame;
@@ -109,7 +114,7 @@ int main(int argc, char *argv[]) {
     socket_address.sll_halen = ETH_ALEN;
 
     // Add payload after Ethernet header
-    struct arp_packet router_arp = construct_arp_packet(&target_ip);
+    struct arp_packet router_arp = construct_arp_packet(source_mac_address, &target_ip);
     memcpy(arp_frame.buffer, (void*)(&router_arp), sizeof(router_arp));
 
     size_t buffer_size = ETH_HLEN + sizeof(router_arp);
