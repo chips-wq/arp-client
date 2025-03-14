@@ -10,6 +10,11 @@
 #define INTERFACE "eth0"
 #define PAYLOAD "Hello world!"
 
+#define PROT_ADDRESS_LEN 4
+
+unsigned char sha[] = {0x00, 0x15, 0x5d, 0x9f, 0x9e, 0x01};
+unsigned char tha[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+
 void get_ifreq_ref(int sockfd, const char* eth_name, struct ifreq& if_idx) {
     memset(&if_idx, 0, sizeof(struct ifreq));
     strncpy(if_idx.ifr_name, INTERFACE, IFNAMSIZ - 1);
@@ -21,6 +26,48 @@ void get_ifreq_ref(int sockfd, const char* eth_name, struct ifreq& if_idx) {
     }
 }
 
+
+struct eth_frame {
+    struct ethhdr eh;
+    unsigned char buffer[ETH_DATA_LEN];
+} __attribute__((packed));
+
+
+struct arp_packet {
+    unsigned short htype;
+    unsigned short ptype;
+    unsigned char hlen;
+    unsigned char plen;
+    unsigned short oper;
+    unsigned char sha[ETH_ALEN];
+    unsigned char spa[PROT_ADDRESS_LEN];
+    unsigned char tha[ETH_ALEN];
+    unsigned char tpa[PROT_ADDRESS_LEN];
+} __attribute__((packed));
+
+arp_packet construct_arp_packet() {
+    unsigned char spa[] = {10, 40, 6, 123};
+    unsigned char tpa[] = {10, 40, 141, 224};
+
+    struct arp_packet router_arp;
+    router_arp.htype = htons(0x0001);
+    router_arp.ptype = htons(0x0800);
+    router_arp.hlen = ETH_ALEN;
+    router_arp.plen = PROT_ADDRESS_LEN; // 4 bytes for IPv4 find constants
+    router_arp.oper = htons(0x0001); // request operation
+
+    // MAC Of sender
+    memcpy(router_arp.sha, sha, ETH_ALEN);
+    // IP of sender
+    memcpy(router_arp.spa, spa, PROT_ADDRESS_LEN);
+    // MAC of receiver, all 0xff
+    memcpy(router_arp.tha, tha, ETH_ALEN);
+    // IP of receiver
+    memcpy(router_arp.tpa, tpa, PROT_ADDRESS_LEN);
+
+    return router_arp;
+}
+
 int main() {
     int sockfd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
     if (sockfd < 0) {
@@ -30,43 +77,38 @@ int main() {
     struct ifreq eth0_ifreq;
     get_ifreq_ref(sockfd, INTERFACE, eth0_ifreq);
 
-    // Construct a buffer and a buffer size
-    const size_t buffer_size = ETH_HLEN + strlen(PAYLOAD);
-    unsigned char buffer[buffer_size];
-    memset(buffer, 0, buffer_size);
 
-    struct ethhdr* eh = (struct ethhdr*)buffer;
+    struct eth_frame arp_frame;
+    memcpy(arp_frame.eh.h_source, sha, sizeof(sha));
+    memcpy(arp_frame.eh.h_dest, tha, sizeof(tha));
 
-    eh->h_dest[0] = 0xFF;
-    eh->h_dest[1] = 0xFF;
-    eh->h_dest[2] = 0xFF;
-    eh->h_dest[3] = 0xFF;
-    eh->h_dest[4] = 0xFF;
-    eh->h_dest[5] = 0xFF;
 
-        // Ethertype (using ETH_P_IP, could be anything)
-    eh->h_proto = htons(0x1234);
+    // Ethertype protocol
+    arp_frame.eh.h_proto = htons(ETH_P_ARP);
 
-    // Add payload after Ethernet header
-    memcpy(buffer + ETH_HLEN, PAYLOAD, strlen(PAYLOAD));
 
     // Prepare sockaddr_ll
     struct sockaddr_ll socket_address;
     socket_address.sll_family = AF_PACKET;
-    socket_address.sll_protocol = htons(ETH_P_ALL);
     socket_address.sll_ifindex = eth0_ifreq.ifr_ifindex;
     socket_address.sll_halen = ETH_ALEN;
+    // socket_address.sll_protocol = htons(ETH_P_ARP);
 
     // Set destination MAC in sockaddr_ll (broadcast)
-    socket_address.sll_addr[0] = 0xFF;
-    socket_address.sll_addr[1] = 0xFF;
-    socket_address.sll_addr[2] = 0xFF;
-    socket_address.sll_addr[3] = 0xFF;
-    socket_address.sll_addr[4] = 0xFF;
-    socket_address.sll_addr[5] = 0xFF;
+    // socket_address.sll_addr[0] = 0xFF;
+    // socket_address.sll_addr[1] = 0xFF;
+    // socket_address.sll_addr[2] = 0xFF;
+    // socket_address.sll_addr[3] = 0xFF;
+    // socket_address.sll_addr[4] = 0xFF;
+    // socket_address.sll_addr[5] = 0xFF;
 
+    // Add payload after Ethernet header
+    struct arp_packet router_arp = construct_arp_packet();
+    memcpy(arp_frame.buffer, (void*)(&router_arp), sizeof(router_arp));
+
+    size_t buffer_size = ETH_HLEN + sizeof(router_arp);
     // Send the packet
-    ssize_t bytes_sent = sendto(sockfd, buffer, buffer_size, 0,
+    ssize_t bytes_sent = sendto(sockfd, &arp_frame, buffer_size, 0,
                                 (struct sockaddr*)&socket_address, sizeof(struct sockaddr_ll));
 
     if (bytes_sent < 0) {
