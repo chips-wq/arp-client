@@ -33,9 +33,9 @@ struct arp_packet {
     unsigned char tpa[PROT_ADDRESS_LEN];
 } __attribute__((packed));
 
-arp_packet construct_arp_packet() {
+arp_packet construct_arp_packet(struct in_addr* tpa) {
     unsigned char spa[] = {10, 40, 6, 123};
-    unsigned char tpa[] = {10, 40, 141, 224};
+    // unsigned char tpa[] = {10, 40, 141, 224};
 
     struct arp_packet router_arp;
     router_arp.htype = htons(0x0001);
@@ -51,7 +51,7 @@ arp_packet construct_arp_packet() {
     // MAC of receiver, all 0xff
     memcpy(router_arp.tha, tha, ETH_ALEN);
     // IP of receiver
-    memcpy(router_arp.tpa, tpa, PROT_ADDRESS_LEN);
+    memcpy(router_arp.tpa, (void*)(&(tpa->s_addr)), PROT_ADDRESS_LEN);
 
     return router_arp;
 }
@@ -125,7 +125,7 @@ int main(int argc, char *argv[]) {
     // socket_address.sll_addr[5] = 0xFF;
 
     // Add payload after Ethernet header
-    struct arp_packet router_arp = construct_arp_packet();
+    struct arp_packet router_arp = construct_arp_packet(&target_ip);
     memcpy(arp_frame.buffer, (void*)(&router_arp), sizeof(router_arp));
 
     size_t buffer_size = ETH_HLEN + sizeof(router_arp);
