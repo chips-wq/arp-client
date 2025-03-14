@@ -10,7 +10,7 @@
 
 #define IPV4_ADDR_LEN 4
 
-unsigned char broadcast_address[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+static unsigned char broadcast_address[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
 struct eth_frame
 {
@@ -40,7 +40,7 @@ arp_packet construct_arp_packet(unsigned char sha[], unsigned char spa[], struct
     memcpy(router_arp.sha, sha, ETH_ALEN);
     // IP of sender
     memcpy(router_arp.spa, spa, IPV4_ADDR_LEN);
-    // MAC of receiver, all 0xff
+    // MAC of receiver, all 0xFF (Broadcast address)
     memcpy(router_arp.broadcast_address, broadcast_address, ETH_ALEN);
     // IP of receiver
     memcpy(router_arp.tpa, (void *)(&(tpa->s_addr)), IPV4_ADDR_LEN);
@@ -48,7 +48,7 @@ arp_packet construct_arp_packet(unsigned char sha[], unsigned char spa[], struct
     return router_arp;
 }
 
-void print_usage(char *program_name)
+void print_usage(const char* program_name)
 {
     std::cerr << "Usage: sudo " << program_name << " -i eth0 -a 192.168.1.1" << std::endl;
     std::cerr << "Then run sudo tcpdump -i eth0 proto 0x0806 -XX" << std::endl;
