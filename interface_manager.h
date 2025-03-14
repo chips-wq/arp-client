@@ -1,7 +1,5 @@
 #include <string>
 
-#define INTERFACE "eth0"
-
 class InterfaceManager {
 private:
     std::string interface;

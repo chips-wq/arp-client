@@ -1,5 +1,6 @@
 #include <iostream>
 #include <net/if.h>
+#include <net/if_arp.h>
 #include <netinet/if_ether.h>
 #include <linux/if_packet.h>
 #include <cstring>
@@ -7,13 +8,11 @@
 #include <arpa/inet.h>
 #include "interface_manager.h"
 
-#define PAYLOAD "Hello world!"
+#define IPV4_ADDR_LEN 4
 
-#define PROT_ADDRESS_LEN 4
 
 unsigned char sha[] = {0x00, 0x15, 0x5d, 0x9f, 0x9e, 0x01};
-unsigned char tha[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-
+unsigned char broadcast_address[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
 struct eth_frame {
     struct ethhdr eh;
@@ -22,15 +21,11 @@ struct eth_frame {
 
 
 struct arp_packet {
-    unsigned short htype;
-    unsigned short ptype;
-    unsigned char hlen;
-    unsigned char plen;
-    unsigned short oper;
+    struct arphdr header;
     unsigned char sha[ETH_ALEN];
-    unsigned char spa[PROT_ADDRESS_LEN];
-    unsigned char tha[ETH_ALEN];
-    unsigned char tpa[PROT_ADDRESS_LEN];
+    unsigned char spa[IPV4_ADDR_LEN];
+    unsigned char broadcast_address[ETH_ALEN];
+    unsigned char tpa[IPV4_ADDR_LEN];
 } __attribute__((packed));
 
 arp_packet construct_arp_packet(struct in_addr* tpa) {
@@ -38,20 +33,20 @@ arp_packet construct_arp_packet(struct in_addr* tpa) {
     // unsigned char tpa[] = {10, 40, 141, 224};
 
     struct arp_packet router_arp;
-    router_arp.htype = htons(0x0001);
-    router_arp.ptype = htons(0x0800);
-    router_arp.hlen = ETH_ALEN;
-    router_arp.plen = PROT_ADDRESS_LEN; // 4 bytes for IPv4 find constants
-    router_arp.oper = htons(0x0001); // request operation
+    router_arp.header.ar_hrd = htons(ARPHRD_ETHER);
+    router_arp.header.ar_pro = htons(ETH_P_IP);
+    router_arp.header.ar_hln = ETH_ALEN;
+    router_arp.header.ar_pln = IPV4_ADDR_LEN; // 4 bytes for IPv4 find constants
+    router_arp.header.ar_op = htons(ARPOP_REQUEST); // request operation
 
     // MAC Of sender
     memcpy(router_arp.sha, sha, ETH_ALEN);
     // IP of sender
-    memcpy(router_arp.spa, spa, PROT_ADDRESS_LEN);
+    memcpy(router_arp.spa, spa, IPV4_ADDR_LEN);
     // MAC of receiver, all 0xff
-    memcpy(router_arp.tha, tha, ETH_ALEN);
+    memcpy(router_arp.broadcast_address, broadcast_address, ETH_ALEN);
     // IP of receiver
-    memcpy(router_arp.tpa, (void*)(&(tpa->s_addr)), PROT_ADDRESS_LEN);
+    memcpy(router_arp.tpa, (void*)(&(tpa->s_addr)), IPV4_ADDR_LEN);
 
     return router_arp;
 }
@@ -59,7 +54,6 @@ arp_packet construct_arp_packet(struct in_addr* tpa) {
 void print_usage(char *program_name) {
     std::cerr << "Usage: sudo " << program_name << " -i eth0 -a 192.168.1.1" << std::endl;
     std::cerr << "Then run sudo tcpdump -i eth0 proto 0x0806 -XX" << std::endl;
-
 }
 
 int main(int argc, char *argv[]) {
@@ -102,27 +96,17 @@ int main(int argc, char *argv[]) {
 
     struct eth_frame arp_frame;
     memcpy(arp_frame.eh.h_source, sha, sizeof(sha));
-    memcpy(arp_frame.eh.h_dest, tha, sizeof(tha));
-
-
+    memcpy(arp_frame.eh.h_dest, broadcast_address, sizeof(broadcast_address));
     // Ethertype protocol
     arp_frame.eh.h_proto = htons(ETH_P_ARP);
 
 
     // Prepare sockaddr_ll
     struct sockaddr_ll socket_address;
+
     socket_address.sll_family = AF_PACKET;
     socket_address.sll_ifindex = eth0_ifreq.ifr_ifindex;
     socket_address.sll_halen = ETH_ALEN;
-    // socket_address.sll_protocol = htons(ETH_P_ARP);
-
-    // Set destination MAC in sockaddr_ll (broadcast)
-    // socket_address.sll_addr[0] = 0xFF;
-    // socket_address.sll_addr[1] = 0xFF;
-    // socket_address.sll_addr[2] = 0xFF;
-    // socket_address.sll_addr[3] = 0xFF;
-    // socket_address.sll_addr[4] = 0xFF;
-    // socket_address.sll_addr[5] = 0xFF;
 
     // Add payload after Ethernet header
     struct arp_packet router_arp = construct_arp_packet(&target_ip);
